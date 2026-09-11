@@ -1,7 +1,7 @@
 clusterConfig:
-  clusterFullName: REPLACE_WITH_DEV_EKS_CLUSTER_NAME
+  clusterFullName: platform-prod
   environment: dev
-  awsRegion: REPLACE_WITH_DEV_AWS_REGION
+  awsRegion: us-east-1
 
 apps:
   vote-app:
