@@ -1,0 +1,5 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Add namespaces here only when GitOps owns their lifecycle.
+# Application-specific namespaces are created by their Argo CD applications.
+resources: []

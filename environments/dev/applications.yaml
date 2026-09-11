@@ -4,13 +4,13 @@ clusterConfig:
   awsRegion: REPLACE_WITH_DEV_AWS_REGION
 
 apps:
-  demo-app:
+  vote-app:
     enabled: true
     installer: kustomize
-    path: apps/demo-app/overlays/dev
+    path: apps/vote-app/overlays/dev
     project: apps
     destination:
-      namespace: demo-app-dev
+      namespace: vote-app-dev
     argoSyncWave: "50"
     syncOptions:
       - CreateNamespace=true

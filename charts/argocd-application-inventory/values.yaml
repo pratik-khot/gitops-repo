@@ -39,8 +39,6 @@ apps:
       serviceAccount:
         create: true
         name: aws-load-balancer-controller
-        annotations:
-          eks.amazonaws.com/role-arn: REPLACE_WITH_LBC_IAM_ROLE_ARN
   external-dns:
     enabled: true
     installer: helm
@@ -143,13 +141,13 @@ apps:
         prometheusSpec:
           retention: 3d
           storageSpec: {}
-  demo-app:
+  vote-app:
     enabled: false
     installer: kustomize
-    path: apps/demo-app/overlays/dev
+    path: apps/vote-app/overlays/dev
     project: apps
     destination:
-      namespace: demo-app-dev
+      namespace: vote-app-dev
     argoSyncWave: "50"
     syncOptions:
       - CreateNamespace=true

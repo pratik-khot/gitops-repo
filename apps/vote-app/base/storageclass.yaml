@@ -1,0 +1,8 @@
+#Below storage class code isnt required if k8s version is >= 1.30 , but here we have used cause we wanted gp3 and default was gp2 in our cluster. So we have created gp3 storage class and used it in pvc.yaml file.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+provisioner: ebs.csi.aws.com
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer

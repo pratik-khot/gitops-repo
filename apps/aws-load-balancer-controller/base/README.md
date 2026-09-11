@@ -2,7 +2,7 @@
 
 The AWS Load Balancer Controller is enabled by default through `application.yaml`.
 
-This repository uses Option B: Terraform creates the IAM role and trust policy; Helm creates the `kube-system/aws-load-balancer-controller` ServiceAccount with the Terraform-provided IAM role ARN annotation. Terraform must not create or manage this ServiceAccount. If the cluster uses EKS Pod Identity instead of IRSA, adapt the Helm values and ownership contract so only one system manages the ServiceAccount.
+Terraform creates the IAM role, policy, and EKS Pod Identity association for the `kube-system/aws-load-balancer-controller` ServiceAccount. Helm creates and owns that ServiceAccount; Terraform must not create or manage it. The Pod Identity association must match the cluster, namespace, and ServiceAccount name exactly. Do not add an `eks.amazonaws.com/role-arn` annotation here because that annotation is for IRSA, not Pod Identity.
 
 Each environment overlay must provide:
 

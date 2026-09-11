@@ -101,7 +101,7 @@ scripts/bootstrap.sh            Initial Argo CD installation and registration
 
 The `charts/argocd-application-inventory` chart is an inventory, not an application workload. It creates Argo CD `Application` objects. The actual workload manifests live under `apps/`.
 
-The `templates/` directory contains Helm templates. The `_helpers.tpl` file contains reusable naming functions, such as the rule that names a generated Application `<environment>-<application>`. For example, the dev demo application becomes `dev-demo-app`.
+ The `templates/` directory contains Helm templates. The `_helpers.tpl` file contains reusable naming functions, such as the rule that names a generated Application `<environment>-<application>`. For example, the dev vote application becomes `dev-vote-app`.
 
 ## Ownership
 
@@ -109,11 +109,13 @@ Terraform owns the EKS cluster, VPC, subnets, networking, node groups, security 
 
 GitOps owns Argo CD, Projects and Applications, platform Helm releases, Kubernetes namespaces, RBAC, network policies, application workloads, and `SecretProviderClass` resources. One resource must have one owner. Terraform must not manage Kubernetes resources also managed by Argo CD, and Argo CD must not recreate Terraform-owned AWS resources.
 
-Service-account ownership is explicit: Terraform creates IAM roles and trust policies; Helm creates the controller ServiceAccounts and applies role ARN annotations. Terraform must not create those Kubernetes ServiceAccounts. If EKS Pod Identity is selected instead of IRSA, keep the same single-owner rule and configure the association in Terraform.
+Service-account ownership is explicit: Terraform creates IAM roles, policies, and identity associations; Helm creates the controller ServiceAccounts. Terraform must not create those Kubernetes ServiceAccounts. The current Terraform EKS module uses EKS Pod Identity for the VPC CNI (`kube-system/aws-node`), EBS CSI (`kube-system/ebs-csi-controller-sa`), and AWS Load Balancer Controller (`kube-system/aws-load-balancer-controller`). The GitOps chart therefore does not add an IRSA role annotation to the AWS Load Balancer Controller.
+
+ExternalDNS and the AWS Secrets Store CSI provider are different: the current Terraform module does not create Pod Identity associations for them. Before enabling either controller, provide its IAM role through an IRSA ServiceAccount annotation or add a Terraform Pod Identity association for the exact namespace and ServiceAccount. ExternalDNS uses namespace `external-dns` and ServiceAccount `external-dns`; the Secrets provider uses namespace `kube-system` and ServiceAccount `secrets-store-csi-driver-provider-aws`. Do not mix an IRSA annotation and a Pod Identity association for the same controller unless the identity design has been tested deliberately.
 
 ## Prerequisites and bootstrap
 
-Required: `kubectl`, Kustomize or `kubectl kustomize`, Git, a Bash-compatible shell, access to the target EKS cluster, and repository access. Helm is optional for local chart inspection.
+Required: AWS CLI, `kubectl`, Helm, Kustomize or `kubectl kustomize`, Git, a Bash-compatible shell, access to the target EKS cluster, and repository access. On Windows, run `scripts/bootstrap.sh` from Git Bash or WSL. PowerShell is fine for AWS, kubectl, Helm, and local validation commands.
 
 ```bash
 kubectl version
@@ -169,6 +171,119 @@ kubectl -n argocd get appprojects
 kubectl -n argocd get events --sort-by=.lastTimestamp
 ```
 
+## Next deployment runbook
+
+Use this sequence for the first deployment into an EKS cluster. The commands below use the dev environment and must be changed for staging or production.
+
+### 1. Finish Terraform first
+
+Apply the infrastructure repository before using this repository. The EKS cluster must be healthy and the Terraform outputs or AWS console must confirm:
+
+- EKS cluster name and AWS region
+- VPC, private subnets, node capacity, and required subnet tags
+- EKS Pod Identity Agent enabled
+- Pod Identity associations for `kube-system/aws-node`, `kube-system/ebs-csi-controller-sa`, and `kube-system/aws-load-balancer-controller`
+- AWS Load Balancer Controller IAM policy and role
+- ExternalDNS IAM role or Pod Identity association, Route 53 hosted zone, and domain filter
+- Secrets Store CSI provider IAM role or Pod Identity association and approved secret permissions
+- `gp3` EBS StorageClass support through the AWS EBS CSI driver
+
+The Terraform module creates the CNI, EBS CSI, and Load Balancer Controller identity resources when configured for standard EKS with `create_lbc_role = true`. ExternalDNS and the Secrets Store CSI provider still need their own identity configuration before those controllers can use AWS APIs.
+
+### 2. Configure AWS access and kubeconfig
+
+Run these commands with the AWS identity that has access to the target cluster:
+
+```bash
+aws sts get-caller-identity
+aws eks update-kubeconfig --region <aws-region> --name <eks-cluster-name>
+kubectl config current-context
+kubectl get nodes
+kubectl auth can-i --list
+```
+
+Before continuing, confirm that the current context and AWS account are the intended environment. Do not bootstrap production while the context points to dev.
+
+### 3. Configure the environment file
+
+For dev, edit `environments/dev/applications.yaml` and replace:
+
+```yaml
+clusterConfig:
+  clusterFullName: <eks-cluster-name>
+  environment: dev
+  awsRegion: <aws-region>
+```
+
+The shared platform inventory also contains values for ExternalDNS and the Secrets Store CSI provider. Replace their placeholders only after their IAM and AWS resources exist. Do not commit AWS credentials, passwords, secret values, or unapproved secret names.
+
+### 4. Validate before bootstrap
+
+From the repository root:
+
+```bash
+helm lint charts/argocd-application-inventory --values environments/dev/applications.yaml
+helm template argocd-root charts/argocd-application-inventory --values environments/dev/applications.yaml
+kubectl kustomize apps/vote-app/overlays/dev
+kubectl apply --dry-run=client -k apps/vote-app/overlays/dev
+git diff --check
+```
+
+The vote app should render `StatefulSet` resources for `db` and `redis`, `Deployment` resources for `vote`, `result`, and `worker`, and PVC templates using the `gp3` StorageClass.
+
+### 5. Bootstrap Argo CD
+
+After the cluster checks and local validation pass, run from Git Bash or WSL:
+
+```bash
+kubectl config use-context <dev-eks-context>
+ENVIRONMENT=dev ./scripts/bootstrap.sh
+```
+
+The script installs the pinned Argo CD release, applies the AppProjects, and creates the root Application. Argo CD then creates the platform and application child Applications from the selected environment inventory.
+
+### 6. Verify synchronization and workload health
+
+```bash
+kubectl -n argocd get applications -o wide
+kubectl -n argocd get appprojects
+kubectl get pods -A
+kubectl -n vote-app-dev get statefulsets,deployments,services,pvc
+kubectl -n vote-app-dev get ingress
+kubectl get events -A --sort-by=.lastTimestamp
+```
+
+For the first rollout, inspect the Argo CD child Application before troubleshooting individual Pods:
+
+```bash
+kubectl -n argocd describe application dev-vote-app
+kubectl -n argocd get application dev-vote-app -o yaml
+```
+
+### 7. Access the application
+
+The vote app Ingress uses `ingressClassName: alb` and host-based routing. The AWS Load Balancer Controller must be healthy and Route 53 must point the configured hostnames to the resulting ALB. Check the hostname and controller events:
+
+```bash
+kubectl -n vote-app-dev get ingress vote-app-ingress
+kubectl -n kube-system logs deployment/aws-load-balancer-controller --tail=100
+```
+
+Do not expose PostgreSQL or Redis through an Ingress. They are internal ClusterIP services and their data is stored through StatefulSet PVCs.
+
+### 8. Make future changes through Git
+
+After the first deployment, change the repository rather than applying ad hoc workload manifests to the cluster:
+
+1. Create a branch.
+2. Update the base or environment overlay.
+3. Render and validate locally.
+4. Open and review a pull request.
+5. Merge the approved change.
+6. Watch the Argo CD child Application reconcile.
+
+Use `kubectl` for inspection and emergency diagnosis. Git remains the source of truth for resources owned by Argo CD.
+
 ## Argo CD application hierarchy
 
 `bootstrap/argocd-root-application.yaml` is the root Application. It renders `charts/argocd-application-inventory` with the selected environment values file. The chart creates one Argo CD Application per enabled entry:
@@ -179,21 +294,21 @@ argocd-root
 ├── <environment>-aws-load-balancer-controller
 ├── <environment>-external-dns
 ├── <environment>-metrics-server
-└── <environment>-demo-app
+└── <environment>-vote-app
 ```
 
 The concrete child names are generated from the environment and inventory key. Helm-backed children source their upstream chart directly. Kustomize-backed children source this repository using the path in the environment values file. Disabled entries are not rendered.
 
-For example, the dev environment currently enables `demo-app`:
+For example, the dev environment currently enables `vote-app`:
 
 ```text
 environments/dev/applications.yaml
   |
   v
-dev-demo-app (generated Argo CD Application)
+dev-vote-app (generated Argo CD Application)
   |
   v
-apps/demo-app/overlays/dev
+apps/vote-app/overlays/dev
 ```
 
 This is the current App-of-Apps boundary: the root Application owns the generated child Applications, and each child owns one controller or workload. Do not create a second Argo CD Application for a resource already generated by this chart.
@@ -299,13 +414,13 @@ Example inventory entry:
 
 ```yaml
 apps:
-  demo-app:
+  vote-app:
     enabled: true
     installer: kustomize
-    path: apps/demo-app/overlays/dev
+    path: apps/vote-app/overlays/dev
     project: apps
     destination:
-      namespace: demo-app-dev
+      namespace: vote-app-dev
     argoSyncWave: "50"
     syncOptions:
       - CreateNamespace=true
@@ -323,9 +438,9 @@ helm template argocd-application-inventory charts/argocd-application-inventory -
 
 ```bash
 helm template argocd-application-inventory charts/argocd-application-inventory --values environments/dev/applications.yaml
-kubectl kustomize apps/demo-app/overlays/dev
-kubectl kustomize apps/demo-app/overlays/staging
-kubectl kustomize apps/demo-app/overlays/prod
+kubectl kustomize apps/vote-app/overlays/dev
+kubectl kustomize apps/vote-app/overlays/staging
+kubectl kustomize apps/vote-app/overlays/prod
 git diff --check
 ruby -e "require 'yaml'; Dir.glob('**/*.yaml').each { |file| YAML.load_stream(File.read(file)) }; puts 'Parsed YAML successfully'"
 ```
@@ -334,7 +449,7 @@ Verify paths and live health:
 
 ```bash
 kubectl -n argocd get applications -o wide
-kubectl -n argocd describe application dev-demo-app
+ kubectl -n argocd describe application dev-vote-app
 kubectl -n kube-system get deployment aws-load-balancer-controller secrets-store-csi-driver
 kubectl -n kube-system get daemonset secrets-store-csi-driver-provider-aws metrics-server
 kubectl -n external-dns get pods
@@ -347,7 +462,7 @@ kubectl get events -A --sort-by=.lastTimestamp
 ## Troubleshooting
 
 - **Missing CRDs:** wait for Argo CD and CSI/controller CRDs; inspect child Application sync waves and logs.
-- **Permission or identity errors:** verify Terraform-created IAM roles, trust policies, IRSA/Pod Identity, ServiceAccount annotations, and region.
+- **Permission or identity errors:** verify the controller's IAM policy, its IRSA annotation or Pod Identity association, the exact namespace and ServiceAccount name, and the AWS region. CNI, EBS CSI, and the AWS Load Balancer Controller use Pod Identity in the current Terraform module; ExternalDNS and the Secrets provider require additional identity configuration.
 - **Secrets not mounted:** verify the `SecretProviderClass`, AWS provider pod, CSI volume mount, secret ARN policy, KMS permissions, and Pod events.
 - **Route 53 failure:** verify hosted-zone ID, domain filter, TXT ownership, external-dns role, and events.
 - **ALB failure:** verify ALB controller role, subnet tags, security groups, VPC tags, ACM ARN/region, annotations, and controller events.
@@ -366,12 +481,13 @@ Production requires a verified context, rendered diff, IAM/DNS/ACM/network prere
 For each dev, staging, and prod EKS environment, Terraform or approved external configuration must provide:
 
 - EKS cluster name and AWS region
-- AWS Load Balancer Controller IAM role ARN, trust policy, and policy permissions
+- AWS Load Balancer Controller IAM role, policy permissions, and Pod Identity association
 - external-dns IAM role ARN, trust policy, Route 53 hosted-zone ID, and domain filter
 - Secrets Store CSI AWS provider IAM role ARN, trust policy, approved Secrets Manager secret ARNs, and KMS permissions
 - VPC/subnet/security-group configuration and required EKS/ALB tags
 - ACM certificate ARN
-- EKS Pod Identity or IRSA associations
+- EKS Pod Identity associations for CNI, EBS CSI, and AWS Load Balancer Controller
+- IRSA roles or Pod Identity associations for ExternalDNS and the Secrets Store CSI provider
 
 These values appear as `REPLACE_WITH_*` placeholders in `environments/*/applications.yaml` and `charts/argocd-application-inventory/values.yaml`. Replace them through an approved configuration workflow without committing AWS credentials or secret values.
 

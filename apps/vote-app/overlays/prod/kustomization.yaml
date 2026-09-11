@@ -1,8 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: demo-app-dev
+namespace: vote-app-prod
 resources:
   - ../../base
 replicas:
-  - name: demo-app
-    count: 1
+  - name: vote
+    count: 3

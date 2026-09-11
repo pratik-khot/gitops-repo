@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - db-config.yaml
+  - db-statefulset.yaml
+  - db-secrets.yaml
+  - db-service.yml
+  - ingress.yaml
+  - ingressClass.yaml
+  - namespace.yaml
+  - redis-statefulset.yaml
+  - redis-service.yml
+  - result-deploy.yml
+  - result-service.yml
+  - storageclass.yaml
+  - vote-deploy.yml
+  - vote-service.yml
+  - worker-deploy.yml
