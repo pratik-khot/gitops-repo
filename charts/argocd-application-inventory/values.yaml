@@ -139,7 +139,7 @@ apps:
           retention: 3d
           storageSpec: {}
   vote-app:
-    enabled: false
+    enabled: true
     installer: kustomize
     path: apps/vote-app/overlays/dev
     project: apps
