@@ -51,6 +51,8 @@ apps:
     destination:
       namespace: external-dns
     argoSyncWave: "20"
+    syncOptions:
+      - CreateNamespace=true
     helmValues:
       provider:
         name: aws
@@ -118,6 +120,8 @@ apps:
     destination:
       namespace: argo-rollouts
     argoSyncWave: "30"
+    syncOptions:
+      - CreateNamespace=true
   kube-prometheus-stack:
     enabled: true
     installer: helm
@@ -129,6 +133,8 @@ apps:
     destination:
       namespace: monitoring
     argoSyncWave: "40"
+    syncOptions:
+      - CreateNamespace=true
     helmValues:
       grafana:
         enabled: true
