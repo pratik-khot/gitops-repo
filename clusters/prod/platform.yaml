@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prod-platform
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/pratik-khot/gitops-repo.git
+    targetRevision: main
+    path: platform/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

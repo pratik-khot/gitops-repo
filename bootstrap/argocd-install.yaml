@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-install-note
+  namespace: argocd
+  annotations:
+    gitops.example.com/managed-by: bootstrap-script
+data:
+  install: "Use the Argo CD upstream install manifest configured by scripts/bootstrap.sh"
