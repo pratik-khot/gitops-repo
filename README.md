@@ -111,7 +111,7 @@ GitOps owns Argo CD, Projects and Applications, platform Helm releases, Kubernet
 
 Service-account ownership is explicit: Terraform creates IAM roles, policies, and identity associations; Helm creates the controller ServiceAccounts. Terraform must not create those Kubernetes ServiceAccounts. The current Terraform EKS module uses EKS Pod Identity for the VPC CNI (`kube-system/aws-node`), EBS CSI (`kube-system/ebs-csi-controller-sa`), and AWS Load Balancer Controller (`kube-system/aws-load-balancer-controller`). The GitOps chart therefore does not add an IRSA role annotation to the AWS Load Balancer Controller.
 
-ExternalDNS and the AWS Secrets Store CSI provider are different: the current Terraform module does not create Pod Identity associations for them. Before enabling either controller, provide its IAM role through an IRSA ServiceAccount annotation or add a Terraform Pod Identity association for the exact namespace and ServiceAccount. ExternalDNS uses namespace `external-dns` and ServiceAccount `external-dns`; the Secrets provider uses namespace `kube-system` and ServiceAccount `secrets-store-csi-driver-provider-aws`. Do not mix an IRSA annotation and a Pod Identity association for the same controller unless the identity design has been tested deliberately.
+ExternalDNS and the AWS Secrets Store CSI provider also use EKS Pod Identity. Terraform must create their IAM roles, policies, and Pod Identity associations for the exact namespace and ServiceAccount. ExternalDNS uses namespace `external-dns` and ServiceAccount `external-dns`; the Secrets provider uses namespace `kube-system` and ServiceAccount `secrets-store-csi-driver-provider-aws`. The GitOps chart intentionally does not add IRSA role annotations. Do not mix an IRSA annotation and a Pod Identity association for the same controller.
 
 ## Prerequisites and bootstrap
 
@@ -369,7 +369,7 @@ metadata:
 spec:
   ingressClassName: alb
   rules:
-    - host: REPLACE_WITH_ROUTE53_HOSTNAME
+    - host: vote.527540700419.realhandsonlabs.net
       http:
         paths:
           - path: /
@@ -462,7 +462,7 @@ kubectl get events -A --sort-by=.lastTimestamp
 ## Troubleshooting
 
 - **Missing CRDs:** wait for Argo CD and CSI/controller CRDs; inspect child Application sync waves and logs.
-- **Permission or identity errors:** verify the controller's IAM policy, its IRSA annotation or Pod Identity association, the exact namespace and ServiceAccount name, and the AWS region. CNI, EBS CSI, and the AWS Load Balancer Controller use Pod Identity in the current Terraform module; ExternalDNS and the Secrets provider require additional identity configuration.
+- **Permission or identity errors:** verify the controller's IAM policy, Pod Identity association, exact namespace and ServiceAccount name, and AWS region. CNI, EBS CSI, the AWS Load Balancer Controller, ExternalDNS, and the Secrets provider use Pod Identity.
 - **Secrets not mounted:** verify the `SecretProviderClass`, AWS provider pod, CSI volume mount, secret ARN policy, KMS permissions, and Pod events.
 - **Route 53 failure:** verify hosted-zone ID, domain filter, TXT ownership, external-dns role, and events.
 - **ALB failure:** verify ALB controller role, subnet tags, security groups, VPC tags, ACM ARN/region, annotations, and controller events.
@@ -482,12 +482,12 @@ For each dev, staging, and prod EKS environment, Terraform or approved external 
 
 - EKS cluster name and AWS region
 - AWS Load Balancer Controller IAM role, policy permissions, and Pod Identity association
-- external-dns IAM role ARN, trust policy, Route 53 hosted-zone ID, and domain filter
-- Secrets Store CSI AWS provider IAM role ARN, trust policy, approved Secrets Manager secret ARNs, and KMS permissions
+- external-dns IAM role, policy, Pod Identity association, Route 53 hosted-zone ID, and domain filter
+- Secrets Store CSI AWS provider IAM role, policy, Pod Identity association, approved Secrets Manager secret ARNs, and KMS permissions
 - VPC/subnet/security-group configuration and required EKS/ALB tags
 - ACM certificate ARN
 - EKS Pod Identity associations for CNI, EBS CSI, and AWS Load Balancer Controller
-- IRSA roles or Pod Identity associations for ExternalDNS and the Secrets Store CSI provider
+- Pod Identity associations for ExternalDNS and the Secrets Store CSI provider
 
 These values appear as `REPLACE_WITH_*` placeholders in `environments/*/applications.yaml` and `charts/argocd-application-inventory/values.yaml`. Replace them through an approved configuration workflow without committing AWS credentials or secret values.
 

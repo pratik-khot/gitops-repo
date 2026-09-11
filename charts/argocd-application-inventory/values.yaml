@@ -57,11 +57,9 @@ apps:
       serviceAccount:
         create: true
         name: external-dns
-        annotations:
-          eks.amazonaws.com/role-arn: REPLACE_WITH_EXTERNAL_DNS_IAM_ROLE_ARN
       domainFilters:
-        - REPLACE_WITH_ROUTE53_DOMAIN
-      txtOwnerId: REPLACE_WITH_ROUTE53_HOSTED_ZONE_ID
+        - 527540700419.realhandsonlabs.net
+      txtOwnerId: Z05611871GPG7UVJDOAGF
   secrets-store-csi-driver:
     enabled: true
     installer: helm
@@ -97,8 +95,6 @@ apps:
       serviceAccount:
         create: true
         name: secrets-store-csi-driver-provider-aws
-        annotations:
-          eks.amazonaws.com/role-arn: REPLACE_WITH_SECRETS_MANAGER_IAM_ROLE_ARN
   metrics-server:
     enabled: true
     installer: helm
