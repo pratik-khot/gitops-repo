@@ -13,6 +13,10 @@ spec:
   clusterResourceWhitelist:
     - group: ''
       kind: Namespace
+    - group: networking.k8s.io
+      kind: IngressClass
+    - group: storage.k8s.io
+      kind: StorageClass
   namespaceResourceWhitelist:
     - group: '*'
       kind: '*'

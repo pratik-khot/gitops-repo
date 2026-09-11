@@ -11,7 +11,7 @@ spec:
   rules:
     # As the images are from docker hub and the app in it works on / path we are not using path based routing here.
     # We are using host based routing to route the traffic to the respective services.
-    - host: vote.177603749039.realhandsonlabs.net 
+    - host: vote.527540700419.realhandsonlabs.net
       http:
         paths:
           - path: /
@@ -22,7 +22,7 @@ spec:
                 port:
                   number: 80
 
-    - host: result.177603749039.realhandsonlabs.net 
+    - host: result.527540700419.realhandsonlabs.net
       http:
         paths:
           - path: /
