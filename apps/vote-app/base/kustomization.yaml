@@ -6,7 +6,6 @@ resources:
   - db-secrets.yaml
   - db-service.yml
   - ingress.yaml
-  - ingressClass.yaml
   - namespace.yaml
   - redis-statefulset.yaml
   - redis-service.yml
