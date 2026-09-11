@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: metrics-server-component
-  namespace: kube-system
-data:
-  component: metrics-server
-  installation: helm

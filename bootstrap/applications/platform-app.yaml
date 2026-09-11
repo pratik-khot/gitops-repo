@@ -1,18 +1,20 @@
+# Template only. Concrete parent Applications are defined in clusters/dev,
+# clusters/staging, and clusters/prod so each environment is explicit.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: prod-platform
+  name: REPLACE_WITH_ENVIRONMENT-platform
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "10"
   labels:
-    gitops.example.com/environment: prod
+    gitops.example.com/environment: REPLACE_WITH_ENVIRONMENT
 spec:
   project: platform
   source:
     repoURL: https://github.com/pratik-khot/gitops-repo.git
     targetRevision: main
-    path: platform/overlays/prod
+    path: platform/overlays/REPLACE_WITH_ENVIRONMENT
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

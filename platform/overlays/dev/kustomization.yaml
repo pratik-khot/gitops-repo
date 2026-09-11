@@ -6,3 +6,5 @@ labels:
   - includeSelectors: true
     pairs:
       environment: dev
+patches:
+  - path: values-patch.yaml

@@ -3,6 +3,10 @@ kind: Application
 metadata:
   name: dev-platform
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  labels:
+    gitops.example.com/environment: dev
 spec:
   project: platform
   source:

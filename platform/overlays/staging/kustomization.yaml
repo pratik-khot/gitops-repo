@@ -6,3 +6,5 @@ labels:
   - includeSelectors: true
     pairs:
       environment: staging
+patches:
+  - path: values-patch.yaml

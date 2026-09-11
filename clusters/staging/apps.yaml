@@ -1,18 +1,18 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: prod-platform
+  name: staging-apps
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "10"
+    argocd.argoproj.io/sync-wave: "20"
   labels:
-    gitops.example.com/environment: prod
+    gitops.example.com/environment: staging
 spec:
-  project: platform
+  project: apps
   source:
     repoURL: https://github.com/pratik-khot/gitops-repo.git
     targetRevision: main
-    path: platform/overlays/prod
+    path: apps
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

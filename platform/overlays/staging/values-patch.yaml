@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ingress-nginx
+  namespace: argocd
+spec:
+  source:
+    helm:
+      values: |
+        controller:
+          replicaCount: 2
+          service:
+            type: LoadBalancer
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+spec:
+  source:
+    helm:
+      values: |
+        grafana:
+          enabled: true
+        prometheus:
+          prometheusSpec:
+            retention: 7d
