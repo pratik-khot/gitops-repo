@@ -353,6 +353,11 @@ Metrics Server remains available for future HPA practice. Argo Rollouts remains 
 
 Grafana remains `ClusterIP` and is not public by default. Retention is environment-specific. Persistence is currently an empty placeholder (`storageSpec: {}`); configure storage classes, capacity, and resources in overlays when required. Do not commit Grafana passwords or other secrets.
 
+The inventory enables server-side apply for this chart because its Prometheus
+Operator CRDs can exceed Kubernetes' 256 KiB client-side apply annotation
+limit. The CRDs must become established before the chart's `Prometheus` and
+`Alertmanager` custom resources can be created.
+
 ## Future ALB Ingress and ACM
 
 ACM certificates are Terraform-owned and must exist in the same AWS region as the ALB. A future application Ingress should use `ingressClassName: alb` and an ACM ARN supplied through environment configuration:

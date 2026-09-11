@@ -135,6 +135,7 @@ apps:
     argoSyncWave: "40"
     syncOptions:
       - CreateNamespace=true
+      - ServerSideApply=true
     helmValues:
       grafana:
         enabled: true
