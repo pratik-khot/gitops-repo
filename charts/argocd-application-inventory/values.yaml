@@ -136,7 +136,10 @@ apps:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
     helmValues:
+      crds:
+        enabled: true
       grafana:
         enabled: true
         service:
