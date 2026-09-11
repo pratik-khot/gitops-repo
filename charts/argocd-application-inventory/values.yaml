@@ -84,7 +84,7 @@ apps:
       windows:
         enabled: false
   aws-secrets-store-provider:
-    enabled: true
+    enabled: false
     installer: helm
     chart:
       repoURL: https://aws.github.io/secrets-store-csi-driver-provider-aws
