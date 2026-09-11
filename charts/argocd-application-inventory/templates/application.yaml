@@ -1,0 +1,46 @@
+{{- range $appName, $app := .Values.apps }}
+{{- if ne $app.enabled false }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ include "argocd-application-inventory.applicationName" (dict "Values" $.Values "appName" $appName) }}
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ quote $app.argoSyncWave }}
+  labels:
+    gitops.example.com/environment: {{ $.Values.clusterConfig.environment }}
+    gitops.example.com/installer: {{ $app.installer }}
+spec:
+  project: {{ $app.project }}
+  source:
+{{- if eq $app.installer "helm" }}
+    repoURL: {{ $app.chart.repoURL }}
+    chart: {{ $app.chart.name }}
+    targetRevision: {{ $app.chart.revision | quote }}
+    helm:
+      releaseName: {{ $app.chart.name }}
+{{- with $app.helmValues }}
+      values: |
+{{ toYaml . | indent 8 }}
+{{- end }}
+{{- else }}
+    repoURL: {{ $.Values.repoURL }}
+    targetRevision: {{ $.Values.targetRevision }}
+{{- if eq $app.installer "kustomize" }}
+    {{- include "argocd-application-inventory.kustomizeSource" (dict "app" $app) | nindent 4 }}
+{{- else if eq $app.installer "manifest" }}
+    path: {{ $app.path }}
+{{- end }}
+{{- end }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $app.destination.namespace }}
+  syncPolicy:
+{{ toYaml (default $.Values.defaultSyncPolicy $app.syncPolicy) | indent 4 }}
+{{- with $app.syncOptions }}
+    syncOptions:
+{{ toYaml . | indent 6 }}
+{{- end }}
+---
+{{- end }}
+{{- end }}

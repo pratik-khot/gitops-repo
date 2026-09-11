@@ -1,0 +1,16 @@
+clusterConfig:
+  clusterFullName: REPLACE_WITH_DEV_EKS_CLUSTER_NAME
+  environment: dev
+  awsRegion: REPLACE_WITH_DEV_AWS_REGION
+
+apps:
+  demo-app:
+    enabled: true
+    installer: kustomize
+    path: apps/demo-app/overlays/dev
+    project: apps
+    destination:
+      namespace: demo-app-dev
+    argoSyncWave: "50"
+    syncOptions:
+      - CreateNamespace=true

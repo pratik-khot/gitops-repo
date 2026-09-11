@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aws-secrets-store-provider
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+spec:
+  project: platform
+  source:
+    repoURL: https://aws.github.io/secrets-store-csi-driver-provider-aws
+    chart: secrets-store-csi-driver-provider-aws
+    targetRevision: 0.3.11
+    helm:
+      releaseName: secrets-store-csi-driver-provider-aws
+      values: |
+        nameOverride: secrets-store-csi-driver-provider-aws
+        serviceAccount:
+          create: true
+          name: secrets-store-csi-driver-provider-aws
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

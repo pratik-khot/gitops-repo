@@ -1,0 +1,7 @@
+clusterConfig:
+  clusterFullName: REPLACE_WITH_EKS_CLUSTER_NAME
+  environment: dev
+  awsRegion: REPLACE_WITH_AWS_REGION
+
+targetRevision: main
+repoURL: https://github.com/pratik-khot/gitops-repo.git

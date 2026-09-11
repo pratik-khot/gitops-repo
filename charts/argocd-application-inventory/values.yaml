@@ -1,0 +1,155 @@
+clusterConfig:
+  clusterFullName: REPLACE_WITH_EKS_CLUSTER_NAME
+  environment: dev
+  awsRegion: REPLACE_WITH_AWS_REGION
+
+targetRevision: main
+repoURL: https://github.com/pratik-khot/gitops-repo.git
+
+defaultSyncPolicy:
+  automated:
+    prune: true
+    selfHeal: true
+
+apps:
+  argocd:
+    enabled: true
+    installer: kustomize
+    path: apps/argocd/base
+    project: platform
+    destination:
+      namespace: argocd
+    argoSyncWave: "0"
+    syncOptions:
+      - CreateNamespace=true
+  aws-load-balancer-controller:
+    enabled: true
+    installer: helm
+    chart:
+      repoURL: https://aws.github.io/eks-charts
+      name: aws-load-balancer-controller
+      revision: 1.11.0
+    project: platform
+    destination:
+      namespace: kube-system
+    argoSyncWave: "10"
+    helmValues:
+      clusterName: REPLACE_WITH_EKS_CLUSTER_NAME
+      region: REPLACE_WITH_AWS_REGION
+      serviceAccount:
+        create: true
+        name: aws-load-balancer-controller
+        annotations:
+          eks.amazonaws.com/role-arn: REPLACE_WITH_LBC_IAM_ROLE_ARN
+  external-dns:
+    enabled: true
+    installer: helm
+    chart:
+      repoURL: https://kubernetes-sigs.github.io/external-dns
+      name: external-dns
+      revision: 1.15.0
+    project: platform
+    destination:
+      namespace: external-dns
+    argoSyncWave: "20"
+    helmValues:
+      provider:
+        name: aws
+      policy: sync
+      serviceAccount:
+        create: true
+        name: external-dns
+        annotations:
+          eks.amazonaws.com/role-arn: REPLACE_WITH_EXTERNAL_DNS_IAM_ROLE_ARN
+      domainFilters:
+        - REPLACE_WITH_ROUTE53_DOMAIN
+      txtOwnerId: REPLACE_WITH_ROUTE53_HOSTED_ZONE_ID
+  secrets-store-csi-driver:
+    enabled: true
+    installer: helm
+    chart:
+      repoURL: https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
+      name: secrets-store-csi-driver
+      revision: 1.4.8
+    project: platform
+    destination:
+      namespace: kube-system
+    argoSyncWave: "20"
+    helmValues:
+      syncSecret:
+        enabled: false
+      enableSecretRotation: true
+      rotationPollInterval: 2m
+      linux:
+        enabled: true
+      windows:
+        enabled: false
+  aws-secrets-store-provider:
+    enabled: true
+    installer: helm
+    chart:
+      repoURL: https://aws.github.io/secrets-store-csi-driver-provider-aws
+      name: secrets-store-csi-driver-provider-aws
+      revision: 0.3.11
+    project: platform
+    destination:
+      namespace: kube-system
+    argoSyncWave: "30"
+    helmValues:
+      serviceAccount:
+        create: true
+        name: secrets-store-csi-driver-provider-aws
+        annotations:
+          eks.amazonaws.com/role-arn: REPLACE_WITH_SECRETS_MANAGER_IAM_ROLE_ARN
+  metrics-server:
+    enabled: true
+    installer: helm
+    chart:
+      repoURL: https://kubernetes-sigs.github.io/metrics-server
+      name: metrics-server
+      revision: 3.12.1
+    project: platform
+    destination:
+      namespace: kube-system
+    argoSyncWave: "30"
+  argo-rollouts:
+    enabled: true
+    installer: helm
+    chart:
+      repoURL: https://argoproj.github.io/argo-helm
+      name: argo-rollouts
+      revision: 2.37.0
+    project: platform
+    destination:
+      namespace: argo-rollouts
+    argoSyncWave: "30"
+  kube-prometheus-stack:
+    enabled: true
+    installer: helm
+    chart:
+      repoURL: https://prometheus-community.github.io/helm-charts
+      name: kube-prometheus-stack
+      revision: 65.8.1
+    project: platform
+    destination:
+      namespace: monitoring
+    argoSyncWave: "40"
+    helmValues:
+      grafana:
+        enabled: true
+        service:
+          type: ClusterIP
+      prometheus:
+        prometheusSpec:
+          retention: 3d
+          storageSpec: {}
+  demo-app:
+    enabled: false
+    installer: kustomize
+    path: apps/demo-app/overlays/dev
+    project: apps
+    destination:
+      namespace: demo-app-dev
+    argoSyncWave: "50"
+    syncOptions:
+      - CreateNamespace=true

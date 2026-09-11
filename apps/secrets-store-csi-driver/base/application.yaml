@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: secrets-store-csi-driver
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+spec:
+  project: platform
+  source:
+    repoURL: https://kubernetes-sigs.github.io/secrets-store-csi-driver
+    chart: secrets-store-csi-driver
+    targetRevision: 1.4.8
+    helm:
+      releaseName: secrets-store-csi-driver
+      values: |
+        syncSecret:
+          enabled: false
+        enableSecretRotation: true
+        rotationPollInterval: 2m
+        linux:
+          enabled: true
+        windows:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

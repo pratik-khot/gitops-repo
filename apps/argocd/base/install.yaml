@@ -1,0 +1,11 @@
+# Pinned Argo CD installation placeholder.
+# The external bootstrap installs this same pinned release before the root Application exists.
+# Replace this file with the reviewed upstream manifest for ARGOCD_VERSION when vendoring is desired.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-installation-reference
+  namespace: argocd
+data:
+  version: v3.1.0
+  source: https://raw.githubusercontent.com/argoproj/argo-cd/v3.1.0/manifests/install.yaml

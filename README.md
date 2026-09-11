@@ -1,99 +1,119 @@
-# GitOps Repository
+# AWS EKS GitOps Repository
 
-This repository manages Kubernetes resources with GitOps. Argo CD continuously compares the desired state in Git with the live cluster and reconciles drift. Kustomize renders shared bases and environment overlays. Argo CD Applications install pinned upstream Helm charts for platform controllers.
+This repository demonstrates a practical organization-style GitOps setup for AWS EKS. Argo CD reads the desired Kubernetes state from Git, while Terraform owns the AWS infrastructure and identity prerequisites.
 
-No business application workload, secret, credential, token, password, certificate, or cloud key is committed here. Application scaffolding is intentionally empty for the service owners who will add workloads later.
+The repository is intentionally small enough to understand, but follows production habits: environment-specific configuration, separate platform and application projects, pinned versions, pull-request-based changes, and one owner for each resource.
 
-## Purpose and architecture
+It currently uses a root Argo CD Application with a Helm application inventory. ApplicationSets are a future option when the number of applications grows; they are not enabled here so the deployment flow remains easy to trace.
 
-The deployment flow is:
+## Start here
+
+There are four ideas to remember:
+
+1. **Terraform creates the AWS foundation.** It creates EKS, networking, IAM, Route 53, ACM, and other AWS prerequisites.
+2. **Argo CD deploys Kubernetes resources.** It watches this repository and keeps the cluster aligned with Git.
+3. **The application inventory decides what is enabled.** The files under `environments/` turn platform controllers and workloads on or off for each environment.
+4. **Kustomize describes workloads.** Files under `apps/` contain the Kubernetes manifests for an application.
+
+For a first run, use this order:
 
 ```text
-Terraform and cloud infrastructure
-  -> Kubernetes cluster and cloud prerequisites
-  -> Argo CD installation
-  -> argocd-root Application
-  -> environment parent Applications
-  -> platform controller child Applications
-  -> application child Applications
+Terraform prerequisites
+  -> EKS access
+  -> ./scripts/bootstrap.sh
+  -> Argo CD root Application
+  -> generated child Applications
+  -> platform controllers and workloads
 ```
 
-Repository structure:
+Do not run the bootstrap script until the EKS cluster exists and the environment file has real cluster, region, and IAM values.
+
+## Important terms
+
+| Term | Meaning in this repository |
+| --- | --- |
+| Terraform | Creates AWS infrastructure and identity prerequisites. |
+| Argo CD | Reconciles Kubernetes resources from Git. |
+| Root Application | The first Argo CD Application created by the bootstrap script. |
+| Application inventory | The Helm chart that generates child Argo CD Applications. |
+| Child Application | One generated Argo CD Application for a controller or workload. |
+| Helm | Installs upstream charts and renders the application inventory. |
+| Kustomize | Builds application manifests from a base and environment overlay. |
+| Environment | A separate dev, staging, or prod configuration and cluster. |
+
+## Quick mental model
+
+```text
+Terraform
+  AWS account, VPC, EKS, IAM, Route 53, ACM, Secrets Manager
+        |
+        v
+Argo CD bootstrap
+  installs Argo CD and creates the root Application
+        |
+        v
+Helm application inventory
+  creates one Argo CD Application for every enabled entry
+        |
+        +--> platform controllers from upstream Helm repositories
+        +--> application workloads from apps/<name>/overlays/<environment>
+```
+
+## Architecture
+
+```text
+Route 53
+  -> external-dns
+  -> AWS Application Load Balancer
+  -> AWS Load Balancer Controller
+  -> Kubernetes Service
+  -> application Pods
+
+AWS Secrets Manager
+  -> Secrets Store CSI Driver
+  -> AWS provider
+  -> Pod-mounted secret files
+```
+
+AWS ACM supplies TLS certificates for future ALB Ingress resources. `cert-manager` is intentionally not installed because ACM owns certificates. `ingress-nginx` is intentionally not installed because the AWS Load Balancer Controller owns AWS ALBs. Future application Ingress resources use `ingressClassName: alb`.
+
+The normal change flow is: create a branch, change Git, render locally, open a pull request, review the diff, merge, and let Argo CD reconcile the approved revision. Production changes should use an explicit approval and a verified Kubernetes context.
+
+## Repository layout
 
 ```text
 bootstrap/
-├── argocd-install.yaml
-├── argocd-root-app.yaml
-├── projects/
-│   ├── platform-project.yaml
-│   └── apps-project.yaml
-└── applications/
-    ├── platform-app.yaml       # clearly marked template
-    └── apps-app.yaml           # clearly marked template
-clusters/
-├── dev/
-├── staging/
-└── prod/
-platform/
-├── base/
-└── overlays/
-    ├── dev/
-    ├── staging/
-    └── prod/
-apps/
-├── kustomization.yaml
-└── <app-name>/
-    ├── base/
-    └── overlays/
-        ├── dev/
-        ├── staging/
-        └── prod/
-common/
-├── namespaces/
-├── rbac/
-└── network-policies/
-scripts/
-└── bootstrap.sh
+  argocd-root-application.yaml  Root Argo CD Application
+  projects/                     Argo CD Projects and permissions
+charts/argocd-application-inventory/
+  Chart.yaml                    Helm chart for the application inventory
+  values.yaml                   Shared platform inventory and defaults
+  templates/                    Argo CD Application templates
+environments/
+  dev/applications.yaml         Dev overrides and enabled workloads
+  staging/applications.yaml     Staging overrides and enabled workloads
+  prod/applications.yaml        Production overrides and enabled workloads
+apps/<app-name>/
+  base/                         Shared workload manifests
+  overlays/<environment>/       Environment-specific workload changes
+scripts/bootstrap.sh            Initial Argo CD installation and registration
 ```
 
-`clusters/dev`, `clusters/staging`, and `clusters/prod` each contain two explicit parent Applications. The platform parent renders `platform/overlays/<environment>`. The apps parent renders `apps`, which is currently an empty Kustomization. Future application child Applications are added explicitly to the apps Kustomization; no ApplicationSet is used.
+The `charts/argocd-application-inventory` chart is an inventory, not an application workload. It creates Argo CD `Application` objects. The actual workload manifests live under `apps/`.
 
-## Ownership boundary
+The `templates/` directory contains Helm templates. The `_helpers.tpl` file contains reusable naming functions, such as the rule that names a generated Application `<environment>-<application>`. For example, the dev demo application becomes `dev-demo-app`.
 
-Terraform in another repository owns cloud and cluster prerequisites:
+## Ownership
 
-- VPCs, networking, subnets, routing, and security groups
-- Kubernetes cluster creation and node pools
-- IAM, IRSA, EKS Pod Identity, GKE Workload Identity, and Azure managed identity
-- DNS zones and cloud load balancer prerequisites
-- PIA and other external infrastructure
-- Managed Kubernetes add-ons such as EKS EBS CSI
+Terraform owns the EKS cluster, VPC, subnets, networking, node groups, security groups, IAM roles and trust policies, IRSA or EKS Pod Identity, Route 53 hosted zones, ACM certificates, AWS Secrets Manager secrets, KMS permissions, PIA, and other AWS prerequisites.
 
-This repository owns:
+GitOps owns Argo CD, Projects and Applications, platform Helm releases, Kubernetes namespaces, RBAC, network policies, application workloads, and `SecretProviderClass` resources. One resource must have one owner. Terraform must not manage Kubernetes resources also managed by Argo CD, and Argo CD must not recreate Terraform-owned AWS resources.
 
-- Argo CD and its bootstrap entrypoints
-- Argo CD Projects
-- Argo CD Applications and the App of Apps hierarchy
-- Kubernetes platform controllers
-- Kubernetes namespaces, RBAC, and network policies
-- Application workloads added under `apps/<app-name>/`
+Service-account ownership is explicit: Terraform creates IAM roles and trust policies; Helm creates the controller ServiceAccounts and applies role ARN annotations. Terraform must not create those Kubernetes ServiceAccounts. If EKS Pod Identity is selected instead of IRSA, keep the same single-owner rule and configure the association in Terraform.
 
-One resource must have one owner. Do not manage the same cluster, add-on, IAM association, DNS record, load balancer, namespace, or other resource from both Terraform and Argo CD. Confirm ownership before adding any resource.
+## Prerequisites and bootstrap
 
-## Prerequisites and permissions
-
-Required tools:
-
-- `kubectl`
-- Kustomize or `kubectl kustomize`
-- Git
-- Bash-compatible shell for `scripts/bootstrap.sh`
-- Access to the target Kubernetes cluster
-- Access to this Git repository
-
-Helm is optional and is useful for local chart inspection; Argo CD installs the configured charts.
-
-Verify the client and target cluster:
+Required: `kubectl`, Kustomize or `kubectl kustomize`, Git, a Bash-compatible shell, access to the target EKS cluster, and repository access. Helm is optional for local chart inspection.
 
 ```bash
 kubectl version
@@ -102,46 +122,45 @@ kubectl config current-context
 kubectl auth can-i --list
 ```
 
-The bootstrap identity must be able to apply the upstream Argo CD manifest, create the `argocd` namespace and Argo CD CRDs, and create/update the Projects and root Application. Argo CD must be allowed to reconcile the resources in its installation and the resources permitted by the `platform` and `apps` AppProjects. Production access should be restricted to approved operators and should use the least privilege compatible with the platform design.
+The bootstrap identity must apply the upstream Argo CD manifest, create the `argocd` namespace and CRDs, and create/update Projects and Applications. Argo CD needs the resources permitted by the `platform` and `apps` AppProjects.
 
-## Bootstrap
-
-Dev is the default environment. Select the cluster context before running the script:
+Dev is the default:
 
 ```bash
 git clone https://github.com/pratik-khot/gitops-repo.git
 cd gitops-repo
-kubectl config use-context <target-context>
-kubectl version
-kubectl cluster-info
-kubectl config current-context
-kubectl auth can-i --list
+kubectl config use-context <dev-eks-context>
 ENVIRONMENT=dev ./scripts/bootstrap.sh
 ```
 
-For staging or production, select the correct cluster context and make the environment explicit:
+For other clusters, select the matching context and be explicit:
 
 ```bash
 ENVIRONMENT=staging ./scripts/bootstrap.sh
 ENVIRONMENT=prod ./scripts/bootstrap.sh
 ```
 
-The script supports:
+Supported variables:
 
 ```bash
 ARGOCD_VERSION=v3.1.0 ENVIRONMENT=dev ./scripts/bootstrap.sh
 REPO_URL=https://github.com/<owner>/<repo>.git ENVIRONMENT=dev ./scripts/bootstrap.sh
 ```
 
-The script:
+The script installs Argo CD from the pinned upstream release, waits for the Applications CRD, applies `bootstrap/projects/*`, applies `bootstrap/argocd-root-application.yaml`, and selects `environments/<ENVIRONMENT>/applications.yaml` as the Helm values file. `bootstrap/argocd-install.yaml` is only the namespace/install note; it is not the full upstream installation manifest.
 
-1. Installs Argo CD from the upstream manifest for `ARGOCD_VERSION`.
-2. Waits for the Applications CRD to become established.
-3. Applies `bootstrap/projects/platform-project.yaml` and `bootstrap/projects/apps-project.yaml`.
-4. Applies `bootstrap/argocd-root-app.yaml`.
-5. Patches `argocd-root` with `REPO_URL` and `clusters/<ENVIRONMENT>`.
+In practical terms, the bootstrap script performs these actions:
 
-`bootstrap/argocd-install.yaml` creates the `argocd` namespace and an installation note. It is not a vendored Argo CD installation manifest; the script downloads the upstream release manifest. After bootstrapping, wait for pods and inspect the hierarchy:
+1. Checks that the selected environment file exists.
+2. Installs the pinned Argo CD release.
+3. Waits for the Argo CD `Application` CRD.
+4. Applies the `platform` and `apps` Projects.
+5. Creates the root Application.
+6. Points the root Application at the selected environment inventory.
+
+The script does not create the EKS cluster, IAM roles, Route 53 zones, ACM certificates, or application secrets. Those remain outside GitOps and must be prepared by Terraform or an approved AWS process.
+
+Never use a dev context with `ENVIRONMENT=prod`. Verify after bootstrap:
 
 ```bash
 kubectl -n argocd get pods -w
@@ -150,128 +169,108 @@ kubectl -n argocd get appprojects
 kubectl -n argocd get events --sort-by=.lastTimestamp
 ```
 
-Do not use a dev context with `ENVIRONMENT=prod`. Review the context, repository URL, branch, and environment path before production bootstrap.
+## Argo CD application hierarchy
 
-## App of Apps
-
-This repository uses explicit App of Apps rather than ApplicationSets. An App of Apps is a parent Argo CD Application whose source contains child Argo CD Application manifests. The root Application manages the selected environment directory; that directory contains the platform and apps parent Applications; each parent then manages its child Applications.
-
-The intended hierarchy is:
+`bootstrap/argocd-root-application.yaml` is the root Application. It renders `charts/argocd-application-inventory` with the selected environment values file. The chart creates one Argo CD Application per enabled entry:
 
 ```text
 argocd-root
-├── dev-platform
-├── dev-apps
-├── staging-platform
-├── staging-apps
-├── prod-platform
-└── prod-apps
+├── <environment>-argocd
+├── <environment>-aws-load-balancer-controller
+├── <environment>-external-dns
+├── <environment>-metrics-server
+└── <environment>-demo-app
 ```
 
-Only the selected environment is managed by the root Application at a time. The other environment manifests remain in Git and are selected by a deliberate bootstrap choice.
+The concrete child names are generated from the environment and inventory key. Helm-backed children source their upstream chart directly. Kustomize-backed children source this repository using the path in the environment values file. Disabled entries are not rendered.
 
-The conceptual flow is:
+For example, the dev environment currently enables `demo-app`:
 
 ```text
-root Application
-├── platform Application
-│   ├── ingress-nginx Application
-│   ├── cert-manager Application
-│   ├── external-dns Application
-│   ├── external-secrets Application
-│   ├── metrics-server Application
-│   ├── argo-rollouts Application
-│   └── kube-prometheus-stack Application
-└── apps Application
-    └── future application child Applications
+environments/dev/applications.yaml
+  |
+  v
+dev-demo-app (generated Argo CD Application)
+  |
+  v
+apps/demo-app/overlays/dev
 ```
 
-- The root Application is `bootstrap/argocd-root-app.yaml` and selects `clusters/<environment>`.
-- Environment parent Applications are explicit files in `clusters/dev`, `clusters/staging`, and `clusters/prod`.
-- Platform child Applications are under `platform/base/<controller>/application.yaml` and are rendered by `platform/overlays/<environment>`.
-- The apps parent is the environment `*-apps` Application and currently renders the empty `apps/kustomization.yaml`.
-- Future app child Applications must be explicit manifests listed by the apps Kustomization and must point to `apps/<app-name>/overlays/<environment>`.
+This is the current App-of-Apps boundary: the root Application owns the generated child Applications, and each child owns one controller or workload. Do not create a second Argo CD Application for a resource already generated by this chart.
 
-App of Apps is useful when the hierarchy, ownership, sync status, and ordering should be visible as explicit Argo CD Applications. It avoids generator behavior and makes production application membership reviewable. Its costs are more manifests, explicit maintenance for every environment, and a higher risk of circular references if a child points back to its parent. A child must never manage the path that creates its parent.
+When this repository grows to many teams and services, an ApplicationSet can replace the inventory chart for workload generation. That migration should be deliberate and should not allow both systems to generate the same Application names.
 
-Sync waves control ordering. The root is the bootstrap entrypoint; environment platform parents use wave `10`, apps parents use wave `20`, platform child controllers use waves `10`, `20`, or `30`, and application child Applications should use a later wave such as `40`. Projects are applied by the bootstrap script before the root Application. Do not create a cycle such as root -> platform -> root or apps -> parent apps.
+Projects are applied before the root. Child sync waves are defined in `charts/argocd-application-inventory/values.yaml` and can be overridden per environment. Automated sync uses prune and self-heal where appropriate.
 
-## Platform and application parents
+### external-dns
 
-Each environment explicitly references both parents:
+The AWS provider is enabled and Route 53 is the DNS target. Terraform owns hosted zones, IAM policy, and identity. Each overlay supplies role ARN, hosted-zone ID, and domain filter. external-dns manages Route 53 records; it does not create the zones.
 
-- `<environment>-platform` uses project `platform` and source `platform/overlays/<environment>`.
-- `<environment>-apps` uses project `apps` and source `apps`.
+### Secrets Store CSI Driver and AWS provider
 
-Both use automated sync with `prune: true` and `selfHeal: true`. `CreateNamespace=true` is used for the Argo CD destination where appropriate. Platform controller Applications use `CreateNamespace=true` only for controller namespaces that they own. The metrics-server Application targets the existing `kube-system` namespace.
+The CSI Driver and AWS provider are separate Argo CD Helm children. The driver mounts AWS Secrets Manager values into Pod files through a `SecretProviderClass` and CSI volume. The AWS provider performs the AWS-specific retrieval. Terraform creates the Secrets Manager secrets, KMS permissions, IAM policy, and identity association. IAM policies should be narrowly scoped to approved secret ARNs.
 
-There are no real application workloads. The apps parent is intentionally healthy but empty until an application child Application is added.
+The driver uses `syncSecret.enabled: false`. `secretObjects` is optional and should be added only when an application explicitly requires synchronization into a Kubernetes Secret. Mounted files are preferred and avoid creating a Kubernetes Secret unnecessarily.
 
-## Argo CD Projects
+`apps/secrets-store-csi-driver/base/secret-provider-class.example.yaml` is an example only. It is not referenced by Kustomize and is not deployed:
 
-An AppProject restricts source repositories, destination clusters, destination namespaces, cluster-scoped resources, and namespace-scoped resources.
-
-### `platform`
-
-Defined in `bootstrap/projects/platform-project.yaml`. It allows the repository `https://github.com/pratik-khot/gitops-repo.git`, the in-cluster destination, all namespaces, and all cluster- and namespace-scoped resources. It is intended for platform administrators because controller installation often includes CRDs and cluster-scoped resources.
-
-### `apps`
-
-Defined in `bootstrap/projects/apps-project.yaml`. It allows the same repository and in-cluster destination. It permits the `Namespace` cluster resource and all namespace-scoped resources. It is intended for application owners operating within their assigned namespaces.
-
-### `default`
-
-No `default` AppProject manifest exists here; `default` is Argo CD's built-in project. The root Application uses it because Projects are applied before the root and the root must bootstrap the hierarchy. Production workload Applications should use `apps`, not `default`, unless an explicitly approved exception exists. A future hardening change can create a restricted bootstrap project for the root and environment parents.
-
-## Platform controllers
-
-The platform base contains explicit Argo CD Applications for these pinned Helm charts:
-
-| Controller | Purpose | Namespace | Chart version | Wave | Application manifest |
-| --- | --- | --- | --- | --- | --- |
-| ingress-nginx | Kubernetes Ingress controller | `ingress-nginx` | `ingress-nginx` `4.12.0` | `10` | `platform/base/ingress-nginx/application.yaml` |
-| cert-manager | Certificate issuance and renewal | `cert-manager` | `cert-manager` `v1.16.5` | `10` | `platform/base/cert-manager/application.yaml` |
-| external-dns | Publishes Kubernetes DNS records | `external-dns` | `external-dns` `1.15.0` | `20` | `platform/base/external-dns/application.yaml` |
-| external-secrets | Syncs approved external secrets | `external-secrets` | `external-secrets` `0.10.7` | `20` | `platform/base/external-secrets/application.yaml` |
-| metrics-server | Serves Kubernetes resource metrics | `kube-system` | `metrics-server` `3.12.1` | `20` | `platform/base/metrics-server/application.yaml` |
-| argo-rollouts | Progressive delivery controller | `argo-rollouts` | `argo-rollouts` `2.37.0` | `20` | `platform/base/argo-rollouts/application.yaml` |
-| kube-prometheus-stack | Prometheus, Alertmanager, Grafana, and exporters | `monitoring` | `kube-prometheus-stack` `65.8.1` | `30` | `platform/base/kube-prometheus-stack/application.yaml` |
-
-The chart repositories and Helm release names are in those Application manifests. Common configuration is in `platform/base`; environment-specific replica and retention values are in `platform/overlays/dev`, `staging`, and `prod`.
-
-The load balancer controller is not enabled. `platform/base/aws-load-balancer-controller/application.yaml.example` is a clearly marked placeholder and is not referenced by `platform/base/kustomization.yaml`. Do not claim it is installed.
-
-Health checks:
-
-```bash
-kubectl -n argocd get applications
-kubectl -n argocd describe application dev-platform
-kubectl -n ingress-nginx get pods,svc
-kubectl -n cert-manager get pods
-kubectl -n external-dns get pods
-kubectl -n external-secrets get pods
-kubectl -n kube-system get deployment metrics-server
-kubectl -n argo-rollouts get pods
-kubectl -n monitoring get pods
-kubectl get crd
+```yaml
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: example-secrets
+  namespace: <application-namespace>
+spec:
+  provider: aws
+  parameters:
+    objects: |
+      - objectName: <aws-secrets-manager-secret-name>
+        objectType: secretsmanager
 ```
 
-Terraform owns cloud prerequisites and identity bindings. Argo CD owns the Helm releases. EKS managed add-ons such as EBS CSI remain Terraform-owned and are intentionally absent.
+To add one later, place a configured `SecretProviderClass` with the application overlay, reference it from that overlay, and mount the CSI volume from the Pod. Do not add production secret names or values to this repository.
 
-## Load balancer options
+### metrics-server and argo-rollouts
 
-Run `./scripts/detect-cluster-provider.sh` to report `aws`, `gcp`, `azure`, or `bare-metal` from node provider IDs. The script reports the provider only; it does not automatically install anything.
+Metrics Server remains available for future HPA practice. Argo Rollouts remains installed for future progressive delivery. No Deployment, Rollout, or business workload is included.
 
-- **AWS/EKS:** Enable the AWS Load Balancer Controller only when Terraform does not manage it. Terraform must create the required IAM permissions and IRSA or EKS Pod Identity association for `kube-system/aws-load-balancer-controller`. Configure cluster name and region from Terraform. Subnets, security groups, certificates, and hosted zones are external prerequisites. Never store AWS keys in Git.
-- **GKE:** Prefer native GKE load balancing where appropriate. Use Workload Identity and the required Service or Ingress annotations. Do not enable the AWS controller.
-- **Azure/AKS:** Use the supported Azure load balancer or Application Gateway integration with managed identity or workload identity. Configure Azure resources outside GitOps. Do not enable the AWS controller.
-- **Bare metal:** Add MetalLB only when required and after reviewing address pools, L2/BGP, and network prerequisites. Do not install a provider-specific controller when the provider is unknown or Terraform already manages it.
+### kube-prometheus-stack
 
-Provider-specific external-dns values, hosted-zone identifiers, cloud identity, TLS certificate sources, and load balancer configuration must be supplied outside this repository or in a reviewed provider-specific overlay without credentials.
+Grafana remains `ClusterIP` and is not public by default. Retention is environment-specific. Persistence is currently an empty placeholder (`storageSpec: {}`); configure storage classes, capacity, and resources in overlays when required. Do not commit Grafana passwords or other secrets.
 
-## Adding an application
+## Future ALB Ingress and ACM
 
-Create one workload directory:
+ACM certificates are Terraform-owned and must exist in the same AWS region as the ALB. A future application Ingress should use `ingressClassName: alb` and an ACM ARN supplied through environment configuration:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/certificate-arn: REPLACE_WITH_ACM_CERTIFICATE_ARN
+spec:
+  ingressClassName: alb
+  rules:
+    - host: REPLACE_WITH_ROUTE53_HOSTNAME
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: app
+                port:
+                  number: 80
+```
+
+external-dns must have Route 53 permissions and a matching domain filter. Do not use cert-manager or Kubernetes TLS Secrets for ACM certificates.
+
+## Adding applications
+
+Keep applications under:
 
 ```text
 apps/<app-name>/
@@ -279,169 +278,110 @@ apps/<app-name>/
 │   ├── kustomization.yaml
 │   ├── deployment.yaml
 │   └── service.yaml
-└── overlays/
-    ├── dev/
-    │   └── kustomization.yaml
-    ├── staging/
-    │   └── kustomization.yaml
-    └── prod/
-        └── kustomization.yaml
+└── overlays/{dev,staging,prod}/
 ```
 
-Use a lowercase DNS-compatible app name. Put Deployment and Service resources in `base`. Add Ingress only when the platform integration is configured. Use ConfigMaps for non-sensitive values and External Secrets for sensitive values. Define resource requests and limits, health probes, replicas, pinned image tags or digests, least-privilege RBAC, and network policies.
+Use lowercase DNS-compatible names, pinned image tags/digests, requests and limits, health probes, replicas, least-privilege RBAC, and network policies. Add ConfigMaps for non-sensitive values, CSI-mounted secrets for sensitive files, and an ALB Ingress only when ready.
 
-For App of Apps, create an explicit child Application manifest for each enabled environment under the application overlay, then add that manifest to `apps/kustomization.yaml`. Keep the child Application manifest separate from the workload Kustomization used by the child Application, so the child does not recursively manage itself. The child Application must use project `apps`, target the app namespace, and use source path `apps/<app-name>/overlays/<environment>`.
+To add an application, create its base and environment overlays, then add an entry to the relevant `environments/<environment>/applications.yaml`. The entry must use `installer: kustomize`, project `apps`, and the overlay path. Set `enabled: false` until the workload is ready for that environment.
 
-To enable dev, staging, or prod, add the corresponding child Application manifest and reference it from `apps/kustomization.yaml`. Validate the overlay before pushing:
+The usual application workflow is:
+
+1. Create `apps/<app-name>/base/` with the shared Deployment, Service, and Kustomization.
+2. Create one overlay for each environment you support.
+3. Add the application to `environments/dev/applications.yaml` with `enabled: true`.
+4. Render the overlay and inventory locally.
+5. Open a pull request and review the generated Application and workload diff.
+6. Merge the change and let Argo CD sync it.
+7. Enable the same application in staging and production only after promotion approval.
+
+Example inventory entry:
+
+```yaml
+apps:
+  demo-app:
+    enabled: true
+    installer: kustomize
+    path: apps/demo-app/overlays/dev
+    project: apps
+    destination:
+      namespace: demo-app-dev
+    argoSyncWave: "50"
+    syncOptions:
+      - CreateNamespace=true
+```
+
+Validate the workload and generated Application before promotion:
 
 ```bash
 kubectl kustomize apps/<app-name>/overlays/dev
 kubectl apply --dry-run=client -k apps/<app-name>/overlays/dev
+helm template argocd-application-inventory charts/argocd-application-inventory --values environments/dev/applications.yaml
 ```
-
-Promote dev -> staging -> prod only after review, rendered-manifest checks, and health verification in the previous environment. No sample business application is included in this repository.
-
-## Secrets, identity, and security
-
-- Never commit secrets, passwords, tokens, certificates, private keys, or cloud credentials.
-- Use External Secrets with an approved secret manager. Add `SecretStore` and `ExternalSecret` resources only after the provider identity and permissions are configured externally.
-- Use IRSA, EKS Pod Identity, GKE Workload Identity, Azure managed identity, or another approved workload identity mechanism instead of static cloud credentials.
-- Use cert-manager with approved Issuers or externally managed certificates. Keep certificate authorities, DNS challenge credentials, and private keys outside Git.
-- Use least-privilege AppProjects, ServiceAccounts, Roles, and RoleBindings.
-- Use namespace isolation and network policies.
-- Pin container images and Helm chart versions; never use `latest`.
-- Require production review for changes to identity, ingress, DNS, RBAC, network policy, pruning, or controller versions.
 
 ## Validation and health checks
 
-Run the requested local validation commands:
-
 ```bash
-kubectl kustomize platform/overlays/dev
-kubectl kustomize platform/overlays/staging
-kubectl kustomize platform/overlays/prod
-kubectl kustomize apps
+helm template argocd-application-inventory charts/argocd-application-inventory --values environments/dev/applications.yaml
+kubectl kustomize apps/demo-app/overlays/dev
+kubectl kustomize apps/demo-app/overlays/staging
+kubectl kustomize apps/demo-app/overlays/prod
 git diff --check
-```
-
-Validate YAML when Ruby is available:
-
-```bash
 ruby -e "require 'yaml'; Dir.glob('**/*.yaml').each { |file| YAML.load_stream(File.read(file)) }; puts 'Parsed YAML successfully'"
 ```
 
-Verify every Application source path exists:
-
-```bash
-Test-Path bootstrap/argocd-root-app.yaml
-Test-Path clusters/dev
-Test-Path clusters/staging
-Test-Path clusters/prod
-Test-Path platform/overlays/dev
-Test-Path platform/overlays/staging
-Test-Path platform/overlays/prod
-Test-Path apps
-```
-
-Inspect Argo CD Applications, Projects, sync state, events, and controller pods:
+Verify paths and live health:
 
 ```bash
 kubectl -n argocd get applications -o wide
-kubectl -n argocd get appprojects
-kubectl -n argocd describe application argocd-root
-kubectl -n argocd describe application dev-platform
-kubectl -n argocd describe application dev-apps
-kubectl -n argocd get events --sort-by=.lastTimestamp
+kubectl -n argocd describe application dev-demo-app
+kubectl -n kube-system get deployment aws-load-balancer-controller secrets-store-csi-driver
+kubectl -n kube-system get daemonset secrets-store-csi-driver-provider-aws metrics-server
+kubectl -n external-dns get pods
+kubectl -n argo-rollouts get pods
+kubectl -n monitoring get pods
+kubectl get crd | grep -E 'secrets-store|rollout|prometheus|alertmanager'
 kubectl get events -A --sort-by=.lastTimestamp
-kubectl get pods -A
-kubectl get crd
 ```
 
 ## Troubleshooting
 
-| Problem | Checks |
-| --- | --- |
-| Bootstrap failure | Check Bash, `kubectl`, context, upstream URL access, permissions, Argo CD pods, and events. |
-| Missing CRD | Wait for Argo CD and controller CRDs; inspect controller logs and sync waves. |
-| Invalid repository path | Verify branch `main`, repository URL, and every `spec.source.path`. |
-| Failed Kustomize render | Run the relevant `kubectl kustomize` command and check relative resources and patch targets. |
-| Namespace conflict | Confirm whether Terraform or another Application owns the namespace; keep one owner. |
-| Permission error | Check the bootstrap identity, Argo CD service account, AppProject destinations, and resource allowlists. |
-| Cloud identity error | Verify Terraform-created IAM/Pod Identity, Workload Identity, managed identity, trust policy, and service account name. |
-| DNS failure | Check external-dns provider values, zone permissions, domain filters, and Kubernetes events. |
-| Certificate failure | Check cert-manager Issuer status, DNS challenge identity, DNS records, and events. |
-| Load balancer failure | Confirm provider, subnets, security groups, annotations, certificates, controller ownership, and cloud events. |
-| Failed Argo sync | Run `kubectl -n argocd describe application <name>`, inspect sync errors/events, fix Git, and allow reconciliation to retry. |
-| Apps not appearing | Confirm the child Application is listed in `apps/kustomization.yaml`, its source path exists, and its project is `apps`. |
-| Circular reference | Ensure parent Applications manage child Application manifests, while child Applications manage only workload manifests. |
+- **Missing CRDs:** wait for Argo CD and CSI/controller CRDs; inspect child Application sync waves and logs.
+- **Permission or identity errors:** verify Terraform-created IAM roles, trust policies, IRSA/Pod Identity, ServiceAccount annotations, and region.
+- **Secrets not mounted:** verify the `SecretProviderClass`, AWS provider pod, CSI volume mount, secret ARN policy, KMS permissions, and Pod events.
+- **Route 53 failure:** verify hosted-zone ID, domain filter, TXT ownership, external-dns role, and events.
+- **ALB failure:** verify ALB controller role, subnet tags, security groups, VPC tags, ACM ARN/region, annotations, and controller events.
+- **Namespace conflict:** ensure only Argo CD owns controller namespaces and Terraform does not recreate them.
+- **Failed sync:** run `kubectl -n argocd describe application <name>`, inspect events, fix Git, and allow reconciliation to retry.
+- **No application child:** confirm the app is enabled in `environments/<environment>/applications.yaml`, its source path exists, and the root Application is synced.
 
 ## Upgrades, rollback, and promotion
 
-Argo CD is pinned by `ARGOCD_VERSION` in `scripts/bootstrap.sh`. Upgrade it deliberately after reviewing upstream release notes and CRD compatibility. Upgrade a platform chart by changing its pinned `targetRevision`, rendering all overlays, testing dev, then promoting to staging and prod.
+Argo CD is pinned by `ARGOCD_VERSION`; platform charts are pinned in their Applications. Review chart and CRD release notes, update one controller at a time, render all overlays, test dev, then promote staging and prod. Roll back by reverting Git to a known-good revision and verifying sync and health. Prune is enabled, so deleting desired resources can delete them from the cluster.
 
-For a failed sync, inspect status and events first. Fix the Git change and let automated reconciliation retry, or pause automation through an approved Argo CD change process. Pruning is enabled, so removing a desired resource can delete it from the cluster. Roll back by reverting Git to the last known-good revision, then verify sync and health.
+Production requires a verified context, rendered diff, IAM/DNS/ACM/network prerequisites, approval, and post-sync checks. Back up Git history and Terraform state separately for disaster recovery; recreate AWS prerequisites with Terraform before rerunning bootstrap.
 
-Production promotion requires a verified production context, reviewed diff, rendered manifests, cloud prerequisite verification, explicit approval, and post-sync controller/workload checks.
+## Required Terraform values per environment
 
-## Operational checklists
+For each dev, staging, and prod EKS environment, Terraform or approved external configuration must provide:
 
-### First installation
+- EKS cluster name and AWS region
+- AWS Load Balancer Controller IAM role ARN, trust policy, and policy permissions
+- external-dns IAM role ARN, trust policy, Route 53 hosted-zone ID, and domain filter
+- Secrets Store CSI AWS provider IAM role ARN, trust policy, approved Secrets Manager secret ARNs, and KMS permissions
+- VPC/subnet/security-group configuration and required EKS/ALB tags
+- ACM certificate ARN
+- EKS Pod Identity or IRSA associations
 
-- [ ] Terraform created the cluster and external prerequisites.
-- [ ] Correct cluster context and permissions are verified.
-- [ ] `ENVIRONMENT` is explicit for non-dev clusters.
-- [ ] Argo CD pods and CRDs become ready.
-- [ ] Projects, root, environment parents, and platform children are healthy.
+These values appear as `REPLACE_WITH_*` placeholders in `environments/*/applications.yaml` and `charts/argocd-application-inventory/values.yaml`. Replace them through an approved configuration workflow without committing AWS credentials or secret values.
 
-### Add a platform controller
+## Checklists and remaining gaps
 
-- [ ] Confirm Terraform does not own the resource.
-- [ ] Add a pinned Argo CD Application under `platform/base`.
-- [ ] Add it to the base Kustomization.
-- [ ] Choose a sync wave after reviewing CRD dependencies.
-- [ ] Add only non-secret environment configuration in overlays.
-- [ ] Configure cloud identity externally.
-- [ ] Render all platform overlays and review the diff.
+- [ ] Terraform provisions EKS, networking, IAM/identity, Route 53, ACM, Secrets Manager, KMS, and ALB prerequisites.
+- [ ] Bootstrap the correct environment and verify Argo Projects and Applications.
+- [ ] Verify CSI driver/provider, AWS Load Balancer Controller, external-dns, metrics-server, rollouts, and monitoring health.
+- [ ] Add application manifests and enable their generated child Applications only when ready.
+- [ ] Configure SecretProviderClass and narrow IAM policies per application.
+- [ ] Review production changes and retain rollback points.
 
-### Add an application
-
-- [ ] Create `apps/<app-name>/base` and the required overlays.
-- [ ] Add the explicit child Application for each enabled environment.
-- [ ] List child Application manifests in `apps/kustomization.yaml`.
-- [ ] Add probes, requests, limits, RBAC, policies, and pinned images.
-- [ ] Keep secrets and identity outside Git.
-- [ ] Validate and promote through dev, staging, and prod.
-
-### Production promotion
-
-- [ ] Verify `kubectl config current-context`.
-- [ ] Review the Git diff and rendered manifests.
-- [ ] Confirm identity, DNS, ingress, certificates, and load balancer prerequisites.
-- [ ] Obtain production approval.
-- [ ] Verify sync, controller health, events, and probes.
-
-### Credential rotation
-
-- [ ] Rotate the value only in the approved external secret manager.
-- [ ] Update identity or SecretStore configuration if needed.
-- [ ] Confirm no secret entered Git history.
-- [ ] Verify ExternalSecret and dependent workload health.
-
-### Disaster recovery
-
-- [ ] Back up this Git repository and Terraform state separately.
-- [ ] Recreate cloud prerequisites and the cluster with Terraform.
-- [ ] Select the correct context and run the bootstrap script.
-- [ ] Verify Projects, Applications, controllers, identity, DNS, certificates, and workloads.
-
-## Current placeholders and implementation gaps
-
-- No business application workloads or child application manifests exist.
-- `apps/kustomization.yaml` is intentionally empty, so the three apps parents currently manage no children.
-- `bootstrap/applications/platform-app.yaml` and `apps-app.yaml` are clearly marked templates; the concrete parent Applications are in each `clusters/<environment>` directory.
-- `common/namespaces`, `common/rbac`, and `common/network-policies` contain empty Kustomize scaffolding.
-- The AWS Load Balancer Controller is disabled and remains an example only.
-- `external-dns` currently selects the AWS provider in the shared base. GKE, Azure, and bare-metal clusters need provider-specific configuration before use.
-- `scripts/detect-cluster-provider.sh` reports a provider but does not select or install a controller.
-- The root and environment parent Applications use the built-in `default` project for bootstrap; production hardening should introduce a restricted bootstrap project.
-- `scripts/bootstrap.sh` waits for the Applications CRD but does not wait for all Argo CD pods or Application health; perform the documented checks manually.
+Current placeholders: no production business workloads, environment AWS values, ACM ARN, CSI IAM role, and monitoring persistence. External Secrets Operator is intentionally not installed; cert-manager and ingress-nginx are intentionally not installed.

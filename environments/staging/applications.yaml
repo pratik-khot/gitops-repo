@@ -1,0 +1,16 @@
+clusterConfig:
+  clusterFullName: REPLACE_WITH_STAGING_EKS_CLUSTER_NAME
+  environment: staging
+  awsRegion: REPLACE_WITH_STAGING_AWS_REGION
+
+apps:
+  demo-app:
+    enabled: false
+    installer: kustomize
+    path: apps/demo-app/overlays/staging
+    project: apps
+    destination:
+      namespace: demo-app-staging
+    argoSyncWave: "50"
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,3 @@
+{{- define "argocd-application-inventory.kustomizeSource" -}}
+path: {{ .app.path }}
+{{- end -}}
