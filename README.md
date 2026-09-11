@@ -465,7 +465,7 @@ kubectl get events -A --sort-by=.lastTimestamp
 - **Permission or identity errors:** verify the controller's IAM policy, Pod Identity association, exact namespace and ServiceAccount name, and AWS region. CNI, EBS CSI, the AWS Load Balancer Controller, ExternalDNS, and the Secrets provider use Pod Identity.
 - **Secrets not mounted:** verify the `SecretProviderClass`, AWS provider pod, CSI volume mount, secret ARN policy, KMS permissions, and Pod events.
 - **Route 53 failure:** verify hosted-zone ID, domain filter, TXT ownership, external-dns role, and events.
-- **ALB failure:** verify ALB controller role, subnet tags, security groups, VPC tags, ACM ARN/region, annotations, and controller events.
+- **ALB failure:** verify the controller's cluster name, AWS region, explicit VPC ID, Pod Identity association, subnet tags, security groups, VPC tags, ACM ARN/region, annotations, and controller events. The AWS Load Balancer Controller should receive `vpcId` when instance metadata is unavailable.
 - **Namespace conflict:** ensure only Argo CD owns controller namespaces and Terraform does not recreate them.
 - **Failed sync:** run `kubectl -n argocd describe application <name>`, inspect events, fix Git, and allow reconciliation to retry.
 - **No application child:** confirm the app is enabled in `environments/<environment>/applications.yaml`, its source path exists, and the root Application is synced.

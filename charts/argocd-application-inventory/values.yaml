@@ -36,6 +36,7 @@ apps:
     helmValues:
       clusterName: platform-prod
       region: us-east-1
+      vpcId: vpc-03e24ae4bcf358018
       serviceAccount:
         create: true
         name: aws-load-balancer-controller
